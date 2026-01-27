@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>不重複抽獎系統</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        :root { --primary: #007aff; --danger: #ff3b30; --bg: #f2f2f7; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .card { background: white; width: 100%; max-width: 450px; padding: 25px; border-radius: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); text-align: center; margin-bottom: 20px; }
+        h2 { margin-top: 0; color: #1c1c1e; }
+        
+        /* 輸入區 */
+        .input-group { text-align: left; margin-bottom: 15px; }
+        label { font-size: 13px; font-weight: 600; color: #8e8e93; text-transform: uppercase; margin-bottom: 5px; display: block; }
+        textarea { width: 100%; height: 100px; border: 1px solid #d1d1d6; border-radius: 12px; padding: 12px; box-sizing: border-box; font-size: 15px; line-height: 1.5; outline: none; transition: 0.2s; }
+        textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0,122,255,0.1); }
+        
+        /* 狀態顯示 */
+        .status-bar { display: flex; justify-content: space-between; font-size: 13px; color: #8e8e93; margin-bottom: 15px; }
+        .count-tag { background: #e5e5ea; padding: 2px 8px; border-radius: 6px; color: #3a3a3c; }
+
+        /* 抽獎按鈕 */
+        .btn { background: var(--primary); color: white; border: none; padding: 16px; width: 100%; border-radius: 14px; font-size: 18px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-top: 10px; }
+        .btn:active { transform: scale(0.97); opacity: 0.8; }
+        .btn:disabled { background: #d1d1d6; cursor: not-allowed; }
+
+        /* 結果展示 */
+        #result { font-size: 36px; color: var(--danger); font-weight: 800; margin: 25px 0; min-height: 60px; display: flex; align-items: center; justify-content: center; background: #fff5f5; border-radius: 15px; border: 2px solid #ffebeb; }
+
+        /* 得獎名單紅榜 */
+        .winner-card { background: white; width: 100%; max-width: 450px; padding: 20px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
+        .winner-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f2f2f7; padding-bottom: 12px; margin-bottom: 12px; }
+        .winner-title { font-weight: 700; color: #1c1c1e; }
+        .btns-small { display: flex; gap: 10px; }
+        .btn-text { background: none; border: none; color: var(--primary); font-size: 14px; cursor: pointer; padding: 0; }
+        .btn-text.red { color: var(--danger); }
+
+        #historyList { list-style: none; padding: 0; margin: 0; }
+        #historyList li { padding: 12px; border-bottom: 1px solid #f2f2f7; display: flex; align-items: center; animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .rank { background: #ff9500; color: white; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; display: flex; align-items: center; justify-content: center; margin-right: 12px; flex-shrink: 0; }
+        .name { font-weight: 500; color: #1c1c1e; flex-grow: 1; }
+        .tip { font-size: 11px; color: #aeaeb2; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🎁 新春超級抽獎</h2>
+
+    <div class="input-group">
+        <label>名單設定 (Excel 匯入或手動輸入)</label>
+        <textarea id="rawNames" placeholder="請在此輸入名單，每行一個名字..." oninput="syncNames()"></textarea>
+        <input type="file" id="fileInput" accept=".xlsx, .xls" style="margin-top: 10px; width: 100%; font-size: 12px;" />
+    </div>
+
+    <div class="status-bar">
+        <span>目前待抽池：</span>
+        <span class="count-tag" id="countInfo">0 人</span>
+    </div>
+    
+    <div id="result">準備抽獎</div>
+
+    <button id="drawBtn" class="btn" onclick="startDraw()">抽出一位幸運兒</button>
+</div>
+
+<div class="winner-card">
+    <div class="winner-header">
+        <span class="winner-title">🏆 得獎名單公布</span>
+        <div class="btns-small">
+            <button class="btn-text" onclick="copyWinners()">複製名單</button>
+            <button class="btn-text red" onclick="resetAll()">清空重來</button>
+        </div>
+    </div>
+    <ul id="historyList">
+        <li style="justify-content: center; color: #c7c7cc;">尚未抽出中獎者</li>
+    </ul>
+</div>
+
+<script>
+    let namesPool = []; // 待抽名單
+    let winnersList = []; // 已中獎名單
+
+    // 同步文字框內容到名單池
+    function syncNames() {
+        const text = document.getElementById('rawNames').value;
+        namesPool = text.split('\n').map(n => n.trim()).filter(n => n !== "");
+        document.getElementById('countInfo').innerText = namesPool.length + " 人";
+        
+        // 如果名單被清空，禁用按鈕
+        document.getElementById('drawBtn').disabled = (namesPool.length === 0);
+    }
+
+    // 處理 Excel 匯入
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                // 抓取第一欄
+                const importedNames = json.map(row => row[0]).filter(n => n !== undefined && String(n).trim() !== "");
+                document.getElementById('rawNames').value = importedNames.join('\n');
+                syncNames();
+                alert("成功匯入 " + importedNames.length + " 人！");
+            } catch (err) {
+                alert("檔案讀取失敗，請確認格式");
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    function startDraw() {
+        if (namesPool.length === 0) {
+            alert("抽獎池已空！請重新輸入名單。");
+            return;
+        }
+
+        const btn = document.getElementById('drawBtn');
+        const resDiv = document.getElementById('result');
+        btn.disabled = true;
+
+        // 滾動動畫效果
+        let counter = 0;
+        const duration = 20; // 滾動次數
+        let timer = setInterval(() => {
+            let randomIndex = Math.floor(Math.random() * namesPool.length);
+            resDiv.innerText = namesPool[randomIndex];
+            counter++;
+            
+            if (counter > duration) {
+                clearInterval(timer);
+                executePick();
+            }
+        }, 60);
+    }
+
+    function executePick() {
+        const resDiv = document.getElementById('result');
+        const btn = document.getElementById('drawBtn');
+        
+        // 核心邏輯：隨機選取並移除 (Splice)
+        const finalIndex = Math.floor(Math.random() * namesPool.length);
+        const winner = namesPool.splice(finalIndex, 1)[0]; // 從陣列中取出並刪除
+        
+        // 更新顯示
+        resDiv.innerText = "🎊 " + winner;
+        winnersList.push(winner);
+
+        // 同步回文字框，讓使用者看到名單減少了
+        document.getElementById('rawNames').value = namesPool.join('\n');
+        
+        updateUI();
+        btn.disabled = (namesPool.length === 0);
+    }
+
+    function updateUI() {
+        // 更新待抽人數
+        document.getElementById('countInfo').innerText = namesPool.length + " 人";
+
+        // 更新得獎名單列表
+        const list = document.getElementById('historyList');
+        if (winnersList.length === 0) {
+            list.innerHTML = '<li style="justify-content: center; color: #c7c7cc;">尚未抽出中獎者</li>';
+            return;
+        }
+
+        // 倒序顯示，最新得獎者在最上面
+        const html = winnersList.map((name, index) => `
+            <li>
+                <span class="rank">${index + 1}</span>
+                <span class="name">${name}</span>
+                <span class="tip">中獎</span>
+            </li>
+        `).reverse().join('');
+        list.innerHTML = html;
+    }
+
+    function copyWinners() {
+        if (winnersList.length === 0) return;
+        const text = winnersList.map((name, i) => `第${i+1}位得獎者：${name}`).join('\n');
+        navigator.clipboard.writeText(text).then(() => alert("名單已複製！"));
+    }
+
+    function resetAll() {
+        if (confirm("確定要清空所有紀錄重新開始嗎？")) {
+            winnersList = [];
+            namesPool = [];
+            document.getElementById('rawNames').value = "";
+            document.getElementById('result').innerText = "準備抽獎";
+            updateUI();
+        }
+    }
+</script>
+
+</body>
+</html>
