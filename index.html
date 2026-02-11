@@ -31,10 +31,25 @@
         #historyList { list-style: none; padding: 0; margin: 0; }
         #historyList li { padding: 12px; border-bottom: 1px solid #f2f2f7; display: flex; align-items: center; }
         .rank { background: #ff9500; color: white; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; display: flex; align-items: center; justify-content: center; margin-right: 12px; flex-shrink: 0; }
-    </style>
+        .logo-container {
+    width: 100%;
+    text-align: center;
+    margin-bottom: 15px; /* 與標題的間距 */
+}
+
+.logo-img {
+    max-width: 160px;    /* 限制寬度，不要太大 */
+    width: 40%;          /* 在小螢幕上佔 40% 寬度 */
+    height: auto;        /* 等比例縮放 */
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15)); /* 增加輕微陰影，讓盾牌更立體 */
+}
+        </style>
 </head>
 <body>
 
+<div class="logo-container">
+    <img src="logo.png" alt="雲嘉贏家" class="logo-img">
+</div>
 <div class="card">
     <h2>🎁 雲嘉🐎上傳 發財金十連抽🧧</h2>
     <div class="input-group">
@@ -131,6 +146,7 @@
 </body>
 
 </html>
+
 
 
 
